@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# tmp
+tmp.py
+
+# vscode
+/.vscode
+
+# insync
+*.insyncdl
