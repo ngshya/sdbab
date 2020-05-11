@@ -190,11 +190,14 @@ class MongoDBClient(DBClient):
         finally:
             self.close_connection()
 
-    def delete(self, df_where):
+    def delete(self, df_where=None):
         sdbab_counter()
         collection = self.get_connection()
         try:
-            collection.delete_many(df_where.to_dict('list'))
+            if df_where is None:
+                collection.drop()
+            else:
+                collection.delete_many({"$or": df_where.to_dict('records')})
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
@@ -223,7 +226,9 @@ class MongoDBClient(DBClient):
                 dict_where = {}
             else:
                 dict_where = {"$or": df_where.to_dict('records')}
-            df = DataFrame(collection.find(dict_where)).drop(["_id"], axis=1)
+            df = DataFrame(collection.find(dict_where))
+            if "_id" in df.columns:
+                df.drop(["_id"], axis=1, inplace=True)
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
