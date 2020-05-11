@@ -2,7 +2,7 @@ from queue import Queue
 from time import time, sleep
 from sqlalchemy import create_engine
 from pymongo import MongoClient
-from pandas import DataFrame
+from pandas import DataFrame, read_sql
 from logging import getLogger
 
 logger = getLogger('logger_sdbab')
@@ -102,9 +102,9 @@ class MariaDBClient(DBClient):
         except Exception as e:
             logger.error("Query execution failed! " + str(e))
 
-    def delete(self, df_key):
+    def delete(self, df_where):
         sdbab_counter()
-        str_where = " OR ".join(["(" + " AND ".join([str(k) + "=" + quote(v) for k, v in zip(d.keys(), d.values())]) + ")" for d in df_key.to_dict('records')])
+        str_where = " OR ".join(["(" + " AND ".join([str(k) + "=" + quote(v) for k, v in zip(d.keys(), d.values())]) + ")" for d in df_where.to_dict('records')])
         connection = self.get_connection()
         try:
             connection.execute("DELETE FROM " + self.__tbc + " WHERE " + str_where + ";")
@@ -113,11 +113,34 @@ class MariaDBClient(DBClient):
         finally:
             self.close_connection()
 
-    def update(self):
-        pass
-
-    def get(self):
-        pass
+    def update(self, df_where, df_new):
+        sdbab_counter()
+        str_where = " OR ".join(["(" + " AND ".join([str(k) + "=" + quote(v) for k, v in zip(d.keys(), d.values())]) + ")" for d in df_where.to_dict('records')])
+        df_new = df_new.head(1)
+        str_new = ", ".join([str(k) + "=" + quote(v) for k, v in zip(df_new.columns, df_new.iloc[0])])
+        connection = self.get_connection()
+        try:
+            connection.execute("UPDATE " + self.__tbc + " SET " + str_new + " WHERE " + str_where + ";")
+        except Exception as e:
+            logger.error("Query execution failed! " + str(e))        
+        finally:
+            self.close_connection()
+        
+    def get(self, df_where=None):
+        sdbab_counter()
+        if df_where is not None:
+            str_where = " OR ".join(["(" + " AND ".join([str(k) + "=" + quote(v) for k, v in zip(d.keys(), d.values())]) + ")" for d in df_where.to_dict('records')])
+        else:
+            str_where = "1=1"
+            df = None
+        try:
+            query = "SELECT * FROM " + self.__tbc + " WHERE " + str_where + ";"
+            df = read_sql(sql=query, con=self.__engine, chunksize=None)
+        except Exception as e:
+            logger.error("Query execution failed! " + str(e))        
+        finally:
+            self.close_connection()
+            return df
 
 
 class MongoDBClient(DBClient):
@@ -167,18 +190,42 @@ class MongoDBClient(DBClient):
         finally:
             self.close_connection()
 
-    def delete(self, df_key):
+    def delete(self, df_where):
         sdbab_counter()
         collection = self.get_connection()
         try:
-            collection.delete_many(df_key.to_dict('list'))
+            collection.delete_many(df_where.to_dict('list'))
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
             self.close_connection()
 
-    def update(self):
-        pass
+    def update(self, df_where, df_new):
+        sdbab_counter()
+        df_new = df_new.head(1)
+        collection = self.get_connection()
+        try:
+            collection.update_many(
+                filter={"$or": df_where.to_dict('records')}, 
+                update={'$set': df_new.to_dict("records")[0]}
+            )
+        except Exception as e:
+            logger.error("Query execution failed! " + str(e))        
+        finally:
+            self.close_connection()
 
-    def get(self):
-        pass
+    def get(self, df_where=None):
+        sdbab_counter()
+        df = None
+        collection = self.get_connection()
+        try:
+            if df_where is None:
+                dict_where = {}
+            else:
+                dict_where = {"$or": df_where.to_dict('records')}
+            df = DataFrame(collection.find(dict_where)).drop(["_id"], axis=1)
+        except Exception as e:
+            logger.error("Query execution failed! " + str(e))        
+        finally:
+            self.close_connection()
+            return df
