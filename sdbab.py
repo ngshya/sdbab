@@ -36,10 +36,10 @@ class DBClient(object):
     def __init__(self):
         raise NotImplementedError
 
-    def get_connection(self):
+    def __open_connection(self):
         raise NotImplementedError
 
-    def close_connection(self):
+    def __close_connection(self):
         raise NotImplementedError
 
     def insert(self):
@@ -51,7 +51,10 @@ class DBClient(object):
     def update(self):
         raise NotImplementedError
 
-    def get(self):
+    def find(self):
+        raise NotImplementedError
+    
+    def query(self, f):
         raise NotImplementedError
 
 
@@ -78,13 +81,13 @@ class MariaDBClient(DBClient):
         )
         self.__connection = None
     
-    def get_connection(self):
+    def __open_connection(self):
         if self.__connection is None:
             self.__connection = self.__engine.connect()
         sdbab_counter()
         return self.__connection
     
-    def close_connection(self):
+    def __close_connection(self):
         if self.__connection is not None:
             self.__connection.close()
             self.__connection = None
@@ -102,31 +105,34 @@ class MariaDBClient(DBClient):
         except Exception as e:
             logger.error("Query execution failed! " + str(e))
 
-    def delete(self, df_where):
+    def delete(self, df_where=None):
         sdbab_counter()
-        str_where = " OR ".join(["(" + " AND ".join([str(k) + "=" + quote(v) for k, v in zip(d.keys(), d.values())]) + ")" for d in df_where.to_dict('records')])
-        connection = self.get_connection()
+        connection = self.__open_connection()
         try:
-            connection.execute("DELETE FROM " + self.__tbc + " WHERE " + str_where + ";")
+            if df_where is None:
+                connection.execute("TRUNCATE TABLE " + self.__tbc + ";")
+            else:
+                str_where = " OR ".join(["(" + " AND ".join([str(k) + "=" + quote(v) for k, v in zip(d.keys(), d.values())]) + ")" for d in df_where.to_dict('records')])
+                connection.execute("DELETE FROM " + self.__tbc + " WHERE " + str_where + ";")
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
-            self.close_connection()
+            self.__close_connection()
 
     def update(self, df_where, df_new):
         sdbab_counter()
         str_where = " OR ".join(["(" + " AND ".join([str(k) + "=" + quote(v) for k, v in zip(d.keys(), d.values())]) + ")" for d in df_where.to_dict('records')])
         df_new = df_new.head(1)
         str_new = ", ".join([str(k) + "=" + quote(v) for k, v in zip(df_new.columns, df_new.iloc[0])])
-        connection = self.get_connection()
+        connection = self.__open_connection()
         try:
             connection.execute("UPDATE " + self.__tbc + " SET " + str_new + " WHERE " + str_where + ";")
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
-            self.close_connection()
+            self.__close_connection()
         
-    def get(self, df_where=None):
+    def find(self, df_where=None):
         sdbab_counter()
         if df_where is not None:
             str_where = " OR ".join(["(" + " AND ".join([str(k) + "=" + quote(v) for k, v in zip(d.keys(), d.values())]) + ")" for d in df_where.to_dict('records')])
@@ -139,8 +145,19 @@ class MariaDBClient(DBClient):
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
-            self.close_connection()
+            self.__close_connection()
             return df
+    
+    def query(self, f):
+        sdbab_counter()
+        out = None
+        try:
+            out = f(self.__open_connection())
+        except Exception as e:
+            logger.error("Query execution failed! " + str(e))        
+        finally:
+            self.__close_connection()
+            return out
 
 
 class MongoDBClient(DBClient):
@@ -155,7 +172,7 @@ class MongoDBClient(DBClient):
         self.__client = None
         self.__connection = None
     
-    def get_connection(self):
+    def __open_connection(self):
         if (self.__connection is None) or (self.__client is None):
             self.__client = MongoClient(
                 'mongodb://' \
@@ -174,7 +191,7 @@ class MongoDBClient(DBClient):
         sdbab_counter()
         return self.__connection
     
-    def close_connection(self):
+    def __close_connection(self):
         if self.__connection is not None:
             self.__client.close()
             self.__connection = None
@@ -183,30 +200,30 @@ class MongoDBClient(DBClient):
     def insert(self, df):
         try:
             sdbab_counter()
-            collection = self.get_connection()
+            collection = self.__open_connection()
             collection.insert_many(df.to_dict('records'))
         except Exception as e:
             logger.error("Query execution failed! " + str(e))
         finally:
-            self.close_connection()
+            self.__close_connection()
 
     def delete(self, df_where=None):
         sdbab_counter()
-        collection = self.get_connection()
+        collection = self.__open_connection()
         try:
             if df_where is None:
-                collection.drop()
+                collection.remove({})
             else:
                 collection.delete_many({"$or": df_where.to_dict('records')})
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
-            self.close_connection()
+            self.__close_connection()
 
     def update(self, df_where, df_new):
         sdbab_counter()
         df_new = df_new.head(1)
-        collection = self.get_connection()
+        collection = self.__open_connection()
         try:
             collection.update_many(
                 filter={"$or": df_where.to_dict('records')}, 
@@ -215,12 +232,12 @@ class MongoDBClient(DBClient):
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
-            self.close_connection()
+            self.__close_connection()
 
-    def get(self, df_where=None):
+    def find(self, df_where=None):
         sdbab_counter()
         df = None
-        collection = self.get_connection()
+        collection = self.__open_connection()
         try:
             if df_where is None:
                 dict_where = {}
@@ -232,5 +249,16 @@ class MongoDBClient(DBClient):
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:
-            self.close_connection()
+            self.__close_connection()
             return df
+
+    def query(self, f):
+        sdbab_counter()
+        out = None
+        try:
+            out = f(self.__open_connection())
+        except Exception as e:
+            logger.error("Query execution failed! " + str(e))        
+        finally:
+            self.__close_connection()
+            return out
