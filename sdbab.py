@@ -172,7 +172,7 @@ class MongoDBClient(DBClient):
         self.__client = None
         self.__connection = None
     
-    def __open_connection(self):
+    def __open_connection(self, level="collection"):
         if (self.__connection is None) or (self.__client is None):
             self.__client = MongoClient(
                 'mongodb://' \
@@ -187,7 +187,10 @@ class MongoDBClient(DBClient):
                 + self.__db, \
                 retryWrites=False
             )
-            self.__connection = self.__client[self.__db][self.__tbc]
+            if level == "collection":
+                self.__connection = self.__client[self.__db][self.__tbc]
+            elif level == "database":
+                self.__connection = self.__client[self.__db]
         sdbab_counter()
         return self.__connection
     
@@ -252,11 +255,11 @@ class MongoDBClient(DBClient):
             self.__close_connection()
             return df
 
-    def query(self, f):
+    def query(self, f, level="collection"):
         sdbab_counter()
         out = None
         try:
-            out = f(self.__open_connection())
+            out = f(self.__open_connection(level=level))
         except Exception as e:
             logger.error("Query execution failed! " + str(e))        
         finally:

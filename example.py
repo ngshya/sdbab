@@ -52,8 +52,8 @@ if db_type == "mariadb":
     def my_query(conn):
         return conn.execute("SELECT SUM(A) SUM_A FROM ctest GROUP BY ID1").fetchall()
 elif db_type == "mongodb":
-    def my_query(coll):
-        return DataFrame(coll.aggregate([{"$group" : {"_id": "$ID1", "SUM_A": {"$sum": "$A"}}}]))
+    def my_query(conn):
+        return DataFrame(conn.aggregate([{"$group" : {"_id": "$ID1", "SUM_A": {"$sum": "$A"}}}]))
 print(client.query(my_query))
 
 # Empty the table.
